@@ -1,0 +1,5 @@
+# Ignore the following executables
+brute
+
+# Ignore .swp files
+*.swp
