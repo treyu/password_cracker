@@ -4,6 +4,7 @@
  * Date: October 28, 2015
  *
  * Summary: Code to brute force a hashed password.
+ * The password uses 76 different characters.
  */
 #include <stdio.h>
 #include <stdint.h>
@@ -14,9 +15,42 @@
 
 #define BILLION 1000000000L
 
-const char *hashedPwd = "E4F548B2ADC79439E8084ED953D94B7BDCBE2BAC";
-const char *salt = "Fb";
+const char *possibleChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!@#$%^&*()_+-=";
+const char *hashedPwd = "8EC2703E314CE2D796D9A5A7F4C9D55523C66EA4";
+const char *salt = "kx";
 char computedHash[40];
+char currentPwd[6];
+
+/**
+ * Get index of character in the possibleChars global constant.
+ */
+int getIndex( char c ) {
+   int index = -1;
+   const char *ptr = strchr( possibleChars, c );
+   if( ptr ) {
+      index = ptr - possibleChars;
+   }
+   return index;
+}
+
+/**
+ * Generates a new password by incrementing the current password
+ * by the next character in the possibleChars global constant.
+ */
+void incrementPwd( int index ) {
+   char currentChar = currentPwd[index];
+   int possibleCharsIndex = getIndex( currentChar );
+
+   possibleCharsIndex++;
+
+   if( possibleCharsIndex > strlen( possibleChars ) - 1 ) {
+      currentPwd[index] = possibleChars[0];
+      int nextIndex = index + 1;
+      incrementPwd( nextIndex );
+   } else {
+      currentPwd[index] = possibleChars[possibleCharsIndex];
+   }
+}
 
 /**
  * Prints out the value of the hash parameter
@@ -48,40 +82,37 @@ void storeHash( unsigned char hash[SHA_DIGEST_LENGTH] ) {
  * Currently uses the SHA-1 algorithm.
  */
 int main( void ) {
-   int counter = 0;
    unsigned char hash[SHA_DIGEST_LENGTH];
-   char currentPwd[4];
 
+   // Get the starting time.
    uint64_t diff;
    struct timespec start, end;
    clock_gettime(CLOCK_MONOTONIC, &start);
 
-   // Possible values are 4 digits long
-   while( counter < 10000 ) {
-      if( counter < 10 ) {
-         sprintf( currentPwd, "%s000%d", salt, counter );
-      } else if( counter < 100 ) {
-         sprintf( currentPwd, "%s00%d", salt, counter );
-      } else if( counter < 1000 ) {
-         sprintf( currentPwd, "%s0%d", salt, counter );
-      } else {
-         sprintf( currentPwd, "%s%d", salt, counter );
-      }
+   char fullPwd[8];
+
+   sprintf( currentPwd, "aaaaaa" );
+
+   while( 1 ) {
+      sprintf( fullPwd, "%s%s", salt, currentPwd );
 
       // Compute the SHA-1 hash value for the password
-      SHA1( currentPwd, strlen(currentPwd), hash );
+      SHA1( fullPwd, strlen(fullPwd), hash );
       storeHash( hash );
 
       // Check if the password has been found
       if( strcasecmp( computedHash, hashedPwd ) == 0 ) {
          printf( "Password found!\n" );
+         printf( "The salt is: %s\n", salt );
          printf( "The password is: %s\n", currentPwd );
          break;
       }
 
-      counter++;
+      incrementPwd( 0 );
    }
 
+   // Get the ending time and calculate the total time of the
+   // password cracker.
    clock_gettime(CLOCK_MONOTONIC, &end);
    diff = BILLION * (end.tv_sec - start.tv_sec) + end.tv_nsec - start.tv_nsec;
 
