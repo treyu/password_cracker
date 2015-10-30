@@ -176,7 +176,7 @@ int main( void ) {
    struct timespec start, end;
    clock_gettime(CLOCK_MONOTONIC, &start);
 
-   sprintf( currentPwd, "aaa" );
+   sprintf( currentPwd, "aaaaaa" );
 
    pthread_mutex_init( &pwdBufferMutex, NULL );
    pthread_cond_init( &condc, NULL );
