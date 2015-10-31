@@ -16,8 +16,9 @@
 #include <pthread.h>
 
 #define BILLION 1000000000L
-#define NUM_THREADS 76
-#define PASS_LENGTH 3
+#define NUM_POSS_CHARS 76
+#define NUM_THREADS 76 * 76
+#define PASS_LENGTH 6
 
 struct thread_info {
    pthread_t thread_id;
@@ -25,7 +26,8 @@ struct thread_info {
 };
 
 const char *possibleChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!@#$%^&*()_+-=";
-const char *hashedPwd = "8EC2703E314CE2D796D9A5A7F4C9D55523C66EA4";
+//const char *hashedPwd = "8EC2703E314CE2D796D9A5A7F4C9D55523C66EA4";
+const char *hashedPwd = "81e4807da0f10e6348acfab1c24defe5e6d7fd9a"; // Waaahc
 const char *salt = "kx";
 char computedHash[NUM_THREADS][40 + 1];
 char currentPwd[NUM_THREADS][PASS_LENGTH + 1];
@@ -64,9 +66,9 @@ void incrementPwd( int index, int threadNum ) {
       int nextIndex = index + 1;
 
       // nextIndex + 1 to get the actual position starting at 1
-      // strlen( currentPwd ) - 1 to get the every character except
-      // the last (need to parallelize).
-      if( nextIndex + 1 > strlen( currentPwd[threadNum] ) - 1 ) {
+      // strlen( currentPwd ) - 2 to get the every character except
+      // the last 2 (for parallelizing)
+      if( nextIndex + 1 > strlen( currentPwd[threadNum] ) - 2 ) {
          allOptionsChecked[threadNum] = 1;
          return;
       } else {
@@ -157,11 +159,16 @@ int main( void ) {
    struct timespec start, end;
    clock_gettime(CLOCK_MONOTONIC, &start);
 
-   int i;
-   for( i = 0; i < NUM_THREADS; i++ ) {
-      sprintf( currentPwd[i], "aaaa" );
-      currentPwd[i][strlen(currentPwd[i]) - 1] = possibleChars[i];
-      currentPwd[i][PASS_LENGTH] = '\0';
+   int i, j;
+   int threadNum = 0;
+   for( i = 0; i < NUM_POSS_CHARS; i++ ) {
+      for( j = 0; j < NUM_POSS_CHARS; j++ ) {
+         sprintf( currentPwd[threadNum], "aaaa" );
+         currentPwd[threadNum][PASS_LENGTH - 1] = possibleChars[i];
+         currentPwd[threadNum][PASS_LENGTH - 2] = possibleChars[j];
+         currentPwd[threadNum][PASS_LENGTH] = '\0';
+         threadNum++;
+      }
    }
 
    pthread_mutex_init( &pwdBufferMutex, NULL );
