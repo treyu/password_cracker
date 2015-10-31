@@ -27,13 +27,14 @@ struct thread_info {
 const char *possibleChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!@#$%^&*()_+-=";
 const char *hashedPwd = "8EC2703E314CE2D796D9A5A7F4C9D55523C66EA4";
 const char *salt = "kx";
-char computedHash[NUM_THREADS][40];
-char currentPwd[NUM_THREADS][PASS_LENGTH];
-char fullPwd[NUM_THREADS][PASS_LENGTH + 2];
+char computedHash[NUM_THREADS][40 + 1];
+char currentPwd[NUM_THREADS][PASS_LENGTH + 1];
+char fullPwd[NUM_THREADS][PASS_LENGTH + 2 + 1];
 
-unsigned char hash[NUM_THREADS][SHA_DIGEST_LENGTH];
+unsigned char hash[NUM_THREADS][SHA_DIGEST_LENGTH + 1];
 int allOptionsChecked[NUM_THREADS] = { 0 };
 
+struct thread_info *tinfo;
 pthread_mutex_t pwdBufferMutex;
 
 /**
@@ -95,34 +96,32 @@ void printHash( unsigned char hash[SHA_DIGEST_LENGTH] ) {
 void storeHash( unsigned char hashValue[SHA_DIGEST_LENGTH], int threadNum ) {
    int i = 0;
    memset( computedHash[threadNum], 0, SHA_DIGEST_LENGTH * 2 );
-   //char value[2];
    for( i = 0; i < SHA_DIGEST_LENGTH; i++ ) {
       snprintf( (char *)&(computedHash[threadNum][i*2]), 3,
                 "%02x", hashValue[i] );
    }
+   computedHash[threadNum][SHA_DIGEST_LENGTH * 2] = '\0';
 }
 
 /**
  * Function to be called for the different threads that will run.
  */
 void *threadFunc( void *arg ) {
-   struct thread_info *tinfo = arg;
-   int threadNum = tinfo->thread_num;
+   struct thread_info *tinfoThread = arg;
+   int threadNum = tinfoThread->thread_num;
 
    while( 1 ) {
       // Wait until the consumer has finished emptying the buffer
-      //sprintf( fullPwd[threadNum], "%s%s", salt, currentPwd[threadNum] );
-      snprintf( fullPwd[threadNum], strlen(salt) +
-                strlen(currentPwd[threadNum]) + 1, "%s%s", salt,
-                currentPwd[threadNum] );
-      //fullPwd[threadNum][8] = '\0';
+      snprintf( fullPwd[threadNum], strlen(salt) + PASS_LENGTH + 1, "%s%s",
+                salt, currentPwd[threadNum] );
 
       SHA1( fullPwd[threadNum], strlen(fullPwd[threadNum]),
             hash[threadNum] );
 
       storeHash( hash[threadNum], threadNum );
 
-      //printf( "Thread %d: %s\n", threadNum, fullPwd[threadNum] );
+      //printf( "Pwd %s: %s\n", currentPwd[threadNum], computedHash[threadNum] );
+      //printf( "Thread %d: %s\n", threadNum, currentPwd[threadNum] );
 
       // Check if the password has been found
       if( strcasecmp( computedHash[threadNum], hashedPwd ) == 0 ) {
@@ -134,7 +133,7 @@ void *threadFunc( void *arg ) {
          int i;
          for( i = 0; i < NUM_THREADS; i++ ) {
             if( i != threadNum ) {
-               pthread_cancel( tinfo[i].thread_num );
+               pthread_cancel( tinfo[i].thread_id );
             }
          }
          pthread_exit( NULL );
@@ -160,14 +159,13 @@ int main( void ) {
 
    int i;
    for( i = 0; i < NUM_THREADS; i++ ) {
-      sprintf( currentPwd[i], "aaa" );
+      sprintf( currentPwd[i], "aaaa" );
       currentPwd[i][strlen(currentPwd[i]) - 1] = possibleChars[i];
       currentPwd[i][PASS_LENGTH] = '\0';
    }
 
    pthread_mutex_init( &pwdBufferMutex, NULL );
 
-   struct thread_info *tinfo;
    tinfo = calloc( NUM_THREADS, sizeof(struct thread_info) );
    if( tinfo == NULL ) {
       printf( "calloc error\n" );
