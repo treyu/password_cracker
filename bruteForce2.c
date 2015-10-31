@@ -8,6 +8,7 @@
  */
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
 #include <string.h>
@@ -15,20 +16,25 @@
 #include <pthread.h>
 
 #define BILLION 1000000000L
+#define NUM_THREADS 76
+#define PASS_LENGTH 3
+
+struct thread_info {
+   pthread_t thread_id;
+   int thread_num;
+};
 
 const char *possibleChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!@#$%^&*()_+-=";
 const char *hashedPwd = "8EC2703E314CE2D796D9A5A7F4C9D55523C66EA4";
 const char *salt = "kx";
-char computedHash[40];
-char currentPwd[6];
-unsigned char hash[SHA_DIGEST_LENGTH];
-int allOptionsChecked = 0;
+char computedHash[NUM_THREADS][40];
+char currentPwd[NUM_THREADS][PASS_LENGTH];
+char fullPwd[NUM_THREADS][PASS_LENGTH + 2];
 
-pthread_t producer, consumer;
-pthread_cond_t condc, condp;
+unsigned char hash[NUM_THREADS][SHA_DIGEST_LENGTH];
+int allOptionsChecked[NUM_THREADS] = { 0 };
+
 pthread_mutex_t pwdBufferMutex;
-char pwdBuffer[1000][6]; // Circular buffer of passwords
-int counter = 0;
 
 /**
  * Get index of character in the possibleChars global constant.
@@ -46,24 +52,29 @@ int getIndex( char c ) {
  * Generates a new password by incrementing the current password
  * by the next character in the possibleChars global constant.
  */
-void incrementPwd( int index ) {
-   char currentChar = currentPwd[index];
+void incrementPwd( int index, int threadNum ) {
+   char currentChar = currentPwd[threadNum][index];
    int possibleCharsIndex = getIndex( currentChar );
 
    possibleCharsIndex++;
 
    if( possibleCharsIndex > strlen( possibleChars ) - 1 ) {
-      currentPwd[index] = possibleChars[0];
+      currentPwd[threadNum][index] = possibleChars[0];
       int nextIndex = index + 1;
-      if( nextIndex > strlen( currentPwd ) - 1 ) {
-         allOptionsChecked = 1;
+
+      // nextIndex + 1 to get the actual position starting at 1
+      // strlen( currentPwd ) - 1 to get the every character except
+      // the last (need to parallelize).
+      if( nextIndex + 1 > strlen( currentPwd[threadNum] ) - 1 ) {
+         allOptionsChecked[threadNum] = 1;
          return;
       } else {
-         incrementPwd( nextIndex );
+         incrementPwd( nextIndex, threadNum );
       }
    } else {
-      currentPwd[index] = possibleChars[possibleCharsIndex];
+      currentPwd[threadNum][index] = possibleChars[possibleCharsIndex];
    }
+   currentPwd[threadNum][PASS_LENGTH] = '\0';
 }
 
 /**
@@ -81,88 +92,59 @@ void printHash( unsigned char hash[SHA_DIGEST_LENGTH] ) {
  * Stores the value of the hash parameter in the
  * computedHash global variable.
  */
-void storeHash( unsigned char hash[SHA_DIGEST_LENGTH] ) {
+void storeHash( unsigned char hashValue[SHA_DIGEST_LENGTH], int threadNum ) {
    int i = 0;
-   memset( &computedHash[0], 0, sizeof(computedHash) );
-   char value[2];
-   for( i = 0; i < 20; i++ ) {
-      snprintf( value, sizeof(value) + 1, "%02x", hash[i] );
-      strcat( computedHash, value );
+   memset( computedHash[threadNum], 0, SHA_DIGEST_LENGTH * 2 );
+   //char value[2];
+   for( i = 0; i < SHA_DIGEST_LENGTH; i++ ) {
+      snprintf( (char *)&(computedHash[threadNum][i*2]), 3,
+                "%02x", hashValue[i] );
    }
 }
 
 /**
- * Function for the producer thread.
- * Creates a bunch of possible passwords and puts them into a
- * circular buffer.
+ * Function to be called for the different threads that will run.
  */
-void *producerFunc( void *arg ) {
-   char fullPwd[8];
+void *threadFunc( void *arg ) {
+   struct thread_info *tinfo = arg;
+   int threadNum = tinfo->thread_num;
 
    while( 1 ) {
       // Wait until the consumer has finished emptying the buffer
-      pthread_mutex_lock( &pwdBufferMutex );
-      while( counter > 0 )
-         pthread_cond_wait( &condp, &pwdBufferMutex );
+      //sprintf( fullPwd[threadNum], "%s%s", salt, currentPwd[threadNum] );
+      snprintf( fullPwd[threadNum], strlen(salt) +
+                strlen(currentPwd[threadNum]) + 1, "%s%s", salt,
+                currentPwd[threadNum] );
+      //fullPwd[threadNum][8] = '\0';
 
-      for( counter = 0; counter < 1000; counter++ ) {
-         sprintf( fullPwd, "%s%s", salt, currentPwd );
+      SHA1( fullPwd[threadNum], strlen(fullPwd[threadNum]),
+            hash[threadNum] );
 
-         strncpy( pwdBuffer[counter], fullPwd, strlen(fullPwd) );
+      storeHash( hash[threadNum], threadNum );
 
-         incrementPwd( 0 );
+      //printf( "Thread %d: %s\n", threadNum, fullPwd[threadNum] );
 
-         if( allOptionsChecked ) {
-            pthread_cond_signal( &condc );
-            pthread_mutex_unlock( &pwdBufferMutex );
-            pthread_exit( NULL );
+      // Check if the password has been found
+      if( strcasecmp( computedHash[threadNum], hashedPwd ) == 0 ) {
+         printf( "Password found!\n" );
+         printf( "The salt is: %s\n", salt );
+         printf( "The password is: %s\n", currentPwd[threadNum] );
+
+         // Stop the other threads and exit out of this thread
+         int i;
+         for( i = 0; i < NUM_THREADS; i++ ) {
+            if( i != threadNum ) {
+               pthread_cancel( tinfo[i].thread_num );
+            }
          }
-      }
-      pthread_cond_signal( &condc );
-      pthread_mutex_unlock( &pwdBufferMutex );
-   }
-}
-
-/**
- * Function for the consumer thread.
- * Grabs passwords from the circular buffer of passwords and
- * computes its SHA-1 hash value. It then checks to see if the
- * generated SHA-1 hash value is equal to the one we are looking
- * for.
- */
-void *consumerFunc( void *arg ) {
-   while( 1 ) {
-      // Wait until the producer has filled the buffer
-      pthread_mutex_lock( &pwdBufferMutex );
-      while( counter < 1000 ) {
-         pthread_cond_wait( &condc, &pwdBufferMutex );
-         if( allOptionsChecked ) {
-            pthread_exit( NULL );
-         }
+         pthread_exit( NULL );
       }
 
-      for( counter = 999; counter >= 0; counter-- ) {
-         // Compute the SHA-1 hash value for the password
-         SHA1( pwdBuffer[counter], strlen(pwdBuffer[counter]),
-               hash );
+      incrementPwd( 0, threadNum );
 
-         storeHash( hash );
-
-         // Check if the password has been found
-         if( strcasecmp( computedHash, hashedPwd ) == 0 ) {
-            printf( "Password found!\n" );
-            printf( "The salt is: %s\n", salt );
-            printf( "The password is: %s\n", currentPwd );
-
-            // Stop the producer thread and exit out of this thread
-            pthread_cancel( producer );
-            pthread_mutex_unlock( &pwdBufferMutex );
-            pthread_exit( NULL );
-         }
+      if( allOptionsChecked[threadNum] ) {
+         pthread_exit( NULL );
       }
-
-      pthread_cond_signal( &condp );
-      pthread_mutex_unlock( &pwdBufferMutex );
    }
 }
 
@@ -176,17 +158,32 @@ int main( void ) {
    struct timespec start, end;
    clock_gettime(CLOCK_MONOTONIC, &start);
 
-   sprintf( currentPwd, "aaaaaa" );
+   int i;
+   for( i = 0; i < NUM_THREADS; i++ ) {
+      sprintf( currentPwd[i], "aaa" );
+      currentPwd[i][strlen(currentPwd[i]) - 1] = possibleChars[i];
+      currentPwd[i][PASS_LENGTH] = '\0';
+   }
 
    pthread_mutex_init( &pwdBufferMutex, NULL );
-   pthread_cond_init( &condc, NULL );
-   pthread_cond_init( &condp, NULL );
 
-   pthread_create( &producer, NULL, producerFunc, NULL );
-   pthread_create( &consumer, NULL, consumerFunc, NULL );
+   struct thread_info *tinfo;
+   tinfo = calloc( NUM_THREADS, sizeof(struct thread_info) );
+   if( tinfo == NULL ) {
+      printf( "calloc error\n" );
+      return 0;
+   }
 
-   pthread_join( producer, NULL );
-   pthread_join( consumer, NULL );
+   for( i = 0; i < NUM_THREADS; i++ ) {
+      tinfo[i].thread_num = i;
+      pthread_create( &tinfo[i].thread_id, NULL, &threadFunc, &tinfo[i] );
+   }
+
+   for( i = 0; i < NUM_THREADS; i++ ) {
+      pthread_join( tinfo[i].thread_id, NULL );
+   }
+
+   free( tinfo );
 
    // Get the ending time and calculate the total time of the
    // password cracker.
