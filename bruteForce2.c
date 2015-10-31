@@ -17,8 +17,8 @@
 
 #define BILLION 1000000000L
 #define NUM_POSS_CHARS 76
-#define NUM_THREADS 76 * 76
-#define PASS_LENGTH 6
+#define NUM_THREADS 19
+#define PASS_LENGTH 4
 
 struct thread_info {
    pthread_t thread_id;
@@ -26,8 +26,8 @@ struct thread_info {
 };
 
 const char *possibleChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!@#$%^&*()_+-=";
-//const char *hashedPwd = "8EC2703E314CE2D796D9A5A7F4C9D55523C66EA4";
-const char *hashedPwd = "81e4807da0f10e6348acfab1c24defe5e6d7fd9a"; // Waaahc
+const char *hashedPwd = "8EC2703E314CE2D796D9A5A7F4C9D55523C66EA4";
+//const char *hashedPwd = "81e4807da0f10e6348acfab1c24defe5e6d7fd9a"; // Waaahc
 const char *salt = "kx";
 char computedHash[NUM_THREADS][40 + 1];
 char currentPwd[NUM_THREADS][PASS_LENGTH + 1];
@@ -67,8 +67,8 @@ void incrementPwd( int index, int threadNum ) {
 
       // nextIndex + 1 to get the actual position starting at 1
       // strlen( currentPwd ) - 2 to get the every character except
-      // the last 2 (for parallelizing)
-      if( nextIndex + 1 > strlen( currentPwd[threadNum] ) - 2 ) {
+      // the last 1 (for parallelizing)
+      if( nextIndex + 1 > strlen( currentPwd[threadNum] ) - 1 ) {
          allOptionsChecked[threadNum] = 1;
          return;
       } else {
@@ -159,24 +159,72 @@ int main( void ) {
    struct timespec start, end;
    clock_gettime(CLOCK_MONOTONIC, &start);
 
-   int i, j;
+   int i;
+   //int j;
    int threadNum = 0;
-   for( i = 0; i < NUM_POSS_CHARS; i++ ) {
-      for( j = 0; j < NUM_POSS_CHARS; j++ ) {
+   //for( i = 0; i < NUM_POSS_CHARS; i++ ) {
+   for( i = 0; i < NUM_THREADS; i++ ) {
+      //for( j = 0; j < NUM_POSS_CHARS; j++ ) {
          sprintf( currentPwd[threadNum], "aaaa" );
          currentPwd[threadNum][PASS_LENGTH - 1] = possibleChars[i];
-         currentPwd[threadNum][PASS_LENGTH - 2] = possibleChars[j];
+         //currentPwd[threadNum][PASS_LENGTH - 2] = possibleChars[j];
          currentPwd[threadNum][PASS_LENGTH] = '\0';
          threadNum++;
-      }
+      //}
    }
-
-   pthread_mutex_init( &pwdBufferMutex, NULL );
 
    tinfo = calloc( NUM_THREADS, sizeof(struct thread_info) );
    if( tinfo == NULL ) {
       printf( "calloc error\n" );
       return 0;
+   }
+
+   for( i = 0; i < NUM_THREADS; i++ ) {
+      tinfo[i].thread_num = i;
+      pthread_create( &tinfo[i].thread_id, NULL, &threadFunc, &tinfo[i] );
+   }
+
+   for( i = 0; i < NUM_THREADS; i++ ) {
+      pthread_join( tinfo[i].thread_id, NULL );
+   }
+
+   for( i = NUM_THREADS; i < NUM_THREADS * 2; i++ ) {
+      sprintf( currentPwd[threadNum], "aaaa" );
+      currentPwd[threadNum][PASS_LENGTH - 1] = possibleChars[i];
+      currentPwd[threadNum][PASS_LENGTH] = '\0';
+      threadNum++;
+   }
+
+   for( i = 0; i < NUM_THREADS; i++ ) {
+      tinfo[i].thread_num = i;
+      pthread_create( &tinfo[i].thread_id, NULL, &threadFunc, &tinfo[i] );
+   }
+
+   for( i = 0; i < NUM_THREADS; i++ ) {
+      pthread_join( tinfo[i].thread_id, NULL );
+   }
+
+   for( i = NUM_THREADS; i < NUM_THREADS * 4; i++ ) {
+      sprintf( currentPwd[threadNum], "aaaa" );
+      currentPwd[threadNum][PASS_LENGTH - 1] = possibleChars[i];
+      currentPwd[threadNum][PASS_LENGTH] = '\0';
+      threadNum++;
+   }
+
+   for( i = 0; i < NUM_THREADS; i++ ) {
+      tinfo[i].thread_num = i;
+      pthread_create( &tinfo[i].thread_id, NULL, &threadFunc, &tinfo[i] );
+   }
+
+   for( i = 0; i < NUM_THREADS; i++ ) {
+      pthread_join( tinfo[i].thread_id, NULL );
+   }
+
+   for( i = NUM_THREADS; i < NUM_THREADS * 8; i++ ) {
+      sprintf( currentPwd[threadNum], "aaaa" );
+      currentPwd[threadNum][PASS_LENGTH - 1] = possibleChars[i];
+      currentPwd[threadNum][PASS_LENGTH] = '\0';
+      threadNum++;
    }
 
    for( i = 0; i < NUM_THREADS; i++ ) {
